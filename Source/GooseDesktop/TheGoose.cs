@@ -19,7 +19,7 @@ namespace GooseDesktop
 		{
 			TheGoose.position = new Vector2(-20f, 120f);
 			TheGoose.targetPos = new Vector2(100f, 150f);
-			if (!GooseConfig.settings.CanAttackAtRandom)
+			if (!GooseConfig.settings.AttackRandomly || !GooseConfig.settings.Task_CanAttackMouse)
 			{
 				int num = Array.IndexOf<int>(TheGoose.taskPickerDeck.indices, Array.IndexOf<TheGoose.GooseTask>(TheGoose.gooseTaskWeightedList, TheGoose.GooseTask.CollectWindow_Meme));
 				int num2 = TheGoose.taskPickerDeck.indices[0];
@@ -74,7 +74,7 @@ namespace GooseDesktop
 		public static void Tick()
 		{
 			Cursor.Clip = Rectangle.Empty;
-			if (TheGoose.currentTask != TheGoose.GooseTask.NabMouse && (Control.MouseButtons & MouseButtons.Left) == MouseButtons.Left && !TheGoose.lastFrameMouseButtonPressed && Vector2.Distance(TheGoose.position + new Vector2(0f, 14f), new Vector2((float)Cursor.Position.X, (float)Cursor.Position.Y)) < 30f)
+			if (GooseConfig.settings.Task_CanAttackMouse && TheGoose.currentTask != TheGoose.GooseTask.NabMouse && (Control.MouseButtons & MouseButtons.Left) == MouseButtons.Left && !TheGoose.lastFrameMouseButtonPressed && Vector2.Distance(TheGoose.position + new Vector2(0f, 14f), new Vector2((float)Cursor.Position.X, (float)Cursor.Position.Y)) < 30f)
 			{
 				TheGoose.SetTask(TheGoose.GooseTask.NabMouse);
 			}
@@ -219,33 +219,40 @@ namespace GooseDesktop
 					{
 						TheGoose.taskCollectWindowInfo.mainForm.ShowDialog();
 					}).Start();
-					switch (TheGoose.taskCollectWindowInfo.screenDirection)
+					if (GooseConfig.settings.RandomizeWindowDropPosition)
 					{
-					case TheGoose.Task_CollectWindow.ScreenDirection.Left:
-						TheGoose.targetPos.y = SamMath.Lerp(TheGoose.position.y, (float)(Program.mainForm.Height / 2), SamMath.RandomRange(0.2f, 0.3f));
-						TheGoose.targetPos.x = (float)TheGoose.taskCollectWindowInfo.mainForm.Width + SamMath.RandomRange(15f, 20f);
-						break;
-					case TheGoose.Task_CollectWindow.ScreenDirection.Top:
-						TheGoose.targetPos.y = (float)TheGoose.taskCollectWindowInfo.mainForm.Height + SamMath.RandomRange(80f, 100f);
-						TheGoose.targetPos.x = SamMath.Lerp(TheGoose.position.x, (float)(Program.mainForm.Width / 2), SamMath.RandomRange(0.2f, 0.3f));
-						break;
-					case TheGoose.Task_CollectWindow.ScreenDirection.Right:
-						TheGoose.targetPos.y = SamMath.Lerp(TheGoose.position.y, (float)(Program.mainForm.Height / 2), SamMath.RandomRange(0.2f, 0.3f));
-						TheGoose.targetPos.x = (float)Program.mainForm.Width - ((float)TheGoose.taskCollectWindowInfo.mainForm.Width + SamMath.RandomRange(20f, 30f));
-						break;
+						Point dropPosition = TheGoose.windowDropPlanner.ChooseWindowDropPosition(
+							Program.mainForm.ClientSize,
+							TheGoose.taskCollectWindowInfo.mainForm.Size,
+							GooseConfig.settings.WindowDropGridColumns,
+							GooseConfig.settings.WindowDropGridRows,
+							GooseConfig.settings.WindowDropEdgeMargin,
+							GooseConfig.settings.AvoidRecentDropZones);
+						TheGoose.taskCollectWindowInfo.dropWindowPosition = new Vector2((float)dropPosition.X, (float)dropPosition.Y);
+						TheGoose.UpdateTargetForWindowDrop();
 					}
-					TheGoose.targetPos.x = SamMath.Clamp(TheGoose.targetPos.x, (float)(TheGoose.taskCollectWindowInfo.mainForm.Width + 55), (float)(Program.mainForm.Width - (TheGoose.taskCollectWindowInfo.mainForm.Width + 55)));
-					TheGoose.targetPos.y = SamMath.Clamp(TheGoose.targetPos.y, (float)(TheGoose.taskCollectWindowInfo.mainForm.Height + 80), (float)Program.mainForm.Height);
+					else
+					{
+						TheGoose.SetLegacyWindowDropTarget();
+					}
 					TheGoose.taskCollectWindowInfo.stage = TheGoose.Task_CollectWindow.Stage.DraggingWindowBack;
 					return;
 				}
 				break;
 			case TheGoose.Task_CollectWindow.Stage.DraggingWindowBack:
-				if (Vector2.Distance(TheGoose.position, TheGoose.targetPos) < 5f)
+				Vector2 currentWindowPosition = TheGoose.gooseRig.head2EndPoint - TheGoose.taskCollectWindowInfo.windowOffsetToBeak;
+				bool reachedDropPosition = GooseConfig.settings.RandomizeWindowDropPosition
+					? Vector2.Distance(currentWindowPosition, TheGoose.taskCollectWindowInfo.dropWindowPosition) < 5f
+					: Vector2.Distance(TheGoose.position, TheGoose.targetPos) < 5f;
+				if (reachedDropPosition)
 				{
 					TheGoose.targetPos = TheGoose.position + Vector2.GetFromAngleDegrees(TheGoose.direction + 180f) * 40f;
 					TheGoose.SetTask(TheGoose.GooseTask.Wander);
 					return;
+				}
+				if (GooseConfig.settings.RandomizeWindowDropPosition)
+				{
+					TheGoose.UpdateTargetForWindowDrop();
 				}
 				TheGoose.overrideExtendNeck = true;
 				TheGoose.targetDirection = TheGoose.position - TheGoose.targetPos;
@@ -254,6 +261,33 @@ namespace GooseDesktop
 			default:
 				return;
 			}
+		}
+
+		private static void UpdateTargetForWindowDrop()
+		{
+			Vector2 currentWindowPosition = TheGoose.gooseRig.head2EndPoint - TheGoose.taskCollectWindowInfo.windowOffsetToBeak;
+			TheGoose.targetPos = TheGoose.position + (TheGoose.taskCollectWindowInfo.dropWindowPosition - currentWindowPosition);
+		}
+
+		private static void SetLegacyWindowDropTarget()
+		{
+			switch (TheGoose.taskCollectWindowInfo.screenDirection)
+			{
+			case TheGoose.Task_CollectWindow.ScreenDirection.Left:
+				TheGoose.targetPos.y = SamMath.Lerp(TheGoose.position.y, (float)(Program.mainForm.Height / 2), SamMath.RandomRange(0.2f, 0.3f));
+				TheGoose.targetPos.x = (float)TheGoose.taskCollectWindowInfo.mainForm.Width + SamMath.RandomRange(15f, 20f);
+				break;
+			case TheGoose.Task_CollectWindow.ScreenDirection.Top:
+				TheGoose.targetPos.y = (float)TheGoose.taskCollectWindowInfo.mainForm.Height + SamMath.RandomRange(80f, 100f);
+				TheGoose.targetPos.x = SamMath.Lerp(TheGoose.position.x, (float)(Program.mainForm.Width / 2), SamMath.RandomRange(0.2f, 0.3f));
+				break;
+			case TheGoose.Task_CollectWindow.ScreenDirection.Right:
+				TheGoose.targetPos.y = SamMath.Lerp(TheGoose.position.y, (float)(Program.mainForm.Height / 2), SamMath.RandomRange(0.2f, 0.3f));
+				TheGoose.targetPos.x = (float)Program.mainForm.Width - ((float)TheGoose.taskCollectWindowInfo.mainForm.Width + SamMath.RandomRange(20f, 30f));
+				break;
+			}
+			TheGoose.targetPos.x = SamMath.Clamp(TheGoose.targetPos.x, (float)(TheGoose.taskCollectWindowInfo.mainForm.Width + 55), (float)(Program.mainForm.Width - (TheGoose.taskCollectWindowInfo.mainForm.Width + 55)));
+			TheGoose.targetPos.y = SamMath.Clamp(TheGoose.targetPos.y, (float)(TheGoose.taskCollectWindowInfo.mainForm.Height + 80), (float)Program.mainForm.Height);
 		}
 
 		// Token: 0x0600004F RID: 79 RVA: 0x0000252A File Offset: 0x0000072A
@@ -306,7 +340,7 @@ namespace GooseDesktop
 		// Token: 0x06000051 RID: 81 RVA: 0x000040D8 File Offset: 0x000022D8
 		private static void ChooseNextTask()
 		{
-			if (!GooseConfig.settings.CanAttackAtRandom && Time.time < GooseConfig.settings.FirstWanderTimeSeconds + 1f)
+			if ((!GooseConfig.settings.AttackRandomly || !GooseConfig.settings.Task_CanAttackMouse) && Time.time < GooseConfig.settings.FirstWanderTimeSeconds + 1f)
 			{
 				TheGoose.SetTask(TheGoose.GooseTask.TrackMud);
 				return;
@@ -318,7 +352,7 @@ namespace GooseDesktop
 				return;
 			}
 			TheGoose.GooseTask gooseTask = TheGoose.gooseTaskWeightedList[TheGoose.taskPickerDeck.Next()];
-			while (!GooseConfig.settings.CanAttackAtRandom)
+			while (!GooseConfig.settings.AttackRandomly || !GooseConfig.settings.Task_CanAttackMouse)
 			{
 				if (gooseTask != TheGoose.GooseTask.NabMouse)
 				{
@@ -533,10 +567,7 @@ namespace GooseDesktop
 			int num2 = (int)TheGoose.position.x;
 			int num3 = (int)TheGoose.position.y;
 			Vector2 a = new Vector2((float)num2, (float)num3);
-			Vector2 b = new Vector2(1.3f, 0.4f);
 			Vector2 fromAngleDegrees = Vector2.GetFromAngleDegrees(num);
-			fromAngleDegrees * b;
-			Vector2.GetFromAngleDegrees(num + 90f) * b;
 			Vector2 a2 = new Vector2(0f, -1f);
 			TheGoose.gooseRig.underbodyCenter = a + a2 * 9f;
 			TheGoose.gooseRig.bodyCenter = a + a2 * 14f;
@@ -569,9 +600,7 @@ namespace GooseDesktop
 			Vector2 vector = new Vector2((float)num4, (float)num5);
 			Vector2 b = new Vector2(1.3f, 0.4f);
 			Vector2 fromAngleDegrees = Vector2.GetFromAngleDegrees(num3);
-			fromAngleDegrees * b;
 			Vector2 fromAngleDegrees2 = Vector2.GetFromAngleDegrees(num3 + 90f);
-			fromAngleDegrees2 * b;
 			Vector2 a = new Vector2(0f, -1f);
 			TheGoose.DrawingPen.Brush = Brushes.White;
 			TheGoose.FillCircleFromCenter(g, Brushes.Orange, TheGoose.lFootPos, 4);
@@ -661,6 +690,8 @@ namespace GooseDesktop
 
 		// Token: 0x04000023 RID: 35
 		private static Vector2 targetPos = new Vector2(300f, 300f);
+
+		private static readonly WindowDropPlanner windowDropPlanner = new WindowDropPlanner(SamMath.Rand);
 
 		// Token: 0x04000024 RID: 36
 		private static float targetDir = 90f;
@@ -961,6 +992,8 @@ namespace GooseDesktop
 			// Token: 0x040000B2 RID: 178
 			public Vector2 windowOffsetToBeak;
 
+			public Vector2 dropWindowPosition;
+
 			// Token: 0x02000026 RID: 38
 			public enum Stage
 			{
@@ -1133,7 +1166,27 @@ namespace GooseDesktop
 			}
 
 			// Token: 0x040000B8 RID: 184
-			private static string[] possiblePhrases = new string[]
+			private static string[] LoadPossiblePhrases()
+			{
+				try
+				{
+					string folder = Program.GetPathToFileInAssembly("Assets/Text/NotepadMessages/");
+					string[] files = Directory.GetFiles(folder, "*.txt");
+					if (files.Length > 0)
+					{
+						List<string> phrases = new List<string>();
+						foreach (string file in files)
+						{
+							phrases.Add(File.ReadAllText(file));
+						}
+						return phrases.ToArray();
+					}
+				}
+				catch
+				{
+				}
+
+				return new string[]
 			{
 				"am goose hjonk",
 				"good work",
@@ -1141,7 +1194,10 @@ namespace GooseDesktop
 				"i cause problems on purpose",
 				"\"peace was never an option\"\r\n   -the goose (me)",
 				"\r\n\r\n  >o) \r\n    (_>"
-			};
+				};
+			}
+
+			private static string[] possiblePhrases = LoadPossiblePhrases();
 
 			// Token: 0x040000B9 RID: 185
 			private static Deck textIndices = new Deck(TheGoose.SimpleTextForm.possiblePhrases.Length);

@@ -1,127 +1,160 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text;
-using System.Windows.Forms;
 
 namespace GooseDesktop
 {
-	// Token: 0x02000009 RID: 9
 	public static class GooseConfig
 	{
-		// Token: 0x0600003D RID: 61 RVA: 0x0000248D File Offset: 0x0000068D
+		private static readonly string filePath = Program.GetPathToFileInAssembly("config.ini");
+		public const int GOOSE_CONFIG_VERSION = 1;
+		public static ConfigSettings settings;
+
 		public static void LoadConfig()
 		{
-			GooseConfig.settings = GooseConfig.ConfigSettings.ReadFileIntoConfig(GooseConfig.filePath);
+			settings = ConfigSettings.ReadFileIntoConfig(filePath);
 		}
 
-		// Token: 0x04000010 RID: 16
-		private static string filePath = Program.GetPathToFileInAssembly("config.goos");
-
-		// Token: 0x04000011 RID: 17
-		public const int GOOSE_CONFIG_VERSION = 0;
-
-		// Token: 0x04000012 RID: 18
-		public static GooseConfig.ConfigSettings settings = null;
-
-		// Token: 0x02000015 RID: 21
 		public class ConfigSettings
 		{
-			// Token: 0x06000079 RID: 121 RVA: 0x0000505C File Offset: 0x0000325C
-			public static GooseConfig.ConfigSettings ReadFileIntoConfig(string configGivenPath)
+			public int Version_DoNotEdit = GOOSE_CONFIG_VERSION;
+			public bool Task_CanAttackMouse = true;
+			public bool AttackRandomly = true;
+			public float MinWanderingTimeSeconds = 8f;
+			public float MaxWanderingTimeSeconds = 15f;
+			public float FirstWanderTimeSeconds = 4f;
+			public bool RandomizeWindowDropPosition = true;
+			public int WindowDropGridColumns = 3;
+			public int WindowDropGridRows = 3;
+			public int WindowDropEdgeMargin = 50;
+			public bool AvoidRecentDropZones = true;
+
+			public static ConfigSettings ReadFileIntoConfig(string configGivenPath)
 			{
-				GooseConfig.ConfigSettings configSettings = new GooseConfig.ConfigSettings();
+				ConfigSettings result = new ConfigSettings();
 				if (!File.Exists(configGivenPath))
 				{
-					MessageBox.Show("Can't find config.goos file! Creating a new one with default values");
-					GooseConfig.ConfigSettings.WriteConfigToFile(configGivenPath, configSettings);
-					return configSettings;
+					WriteConfigToFile(configGivenPath, result);
+					return result;
 				}
+
 				try
 				{
-					using (StreamReader streamReader = new StreamReader(configGivenPath))
+					Dictionary<string, string> values = ReadValues(configGivenPath);
+					int version;
+					string versionText;
+					if (values.TryGetValue("Version_DoNotEdit", out versionText)
+						&& (!int.TryParse(versionText, out version) || version != GOOSE_CONFIG_VERSION))
 					{
-						Dictionary<string, string> dictionary = new Dictionary<string, string>();
-						string text;
-						while ((text = streamReader.ReadLine()) != null)
+						return result;
+					}
+
+					foreach (KeyValuePair<string, string> pair in values)
+					{
+						FieldInfo field = typeof(ConfigSettings).GetField(pair.Key);
+						if (field == null) continue;
+
+						object parsedValue;
+						if (TryConvert(pair.Value, field.FieldType, out parsedValue))
 						{
-							string[] array = text.Split(new char[]
-							{
-								'='
-							});
-							if (array.Length == 2)
-							{
-								dictionary.Add(array[0], array[1]);
-							}
-						}
-						int num = -1;
-						int.TryParse(dictionary["Version"], out num);
-						if (num != 0)
-						{
-							MessageBox.Show("config.goos is for the wrong version! Creating a new one with default values!");
-							File.Delete(configGivenPath);
-							GooseConfig.ConfigSettings.WriteConfigToFile(configGivenPath, configSettings);
-							return configSettings;
-						}
-						foreach (KeyValuePair<string, string> keyValuePair in dictionary)
-						{
-							FieldInfo field = typeof(GooseConfig.ConfigSettings).GetField(keyValuePair.Key);
-							try
-							{
-								field.SetValue(configSettings, Convert.ChangeType(keyValuePair.Value, field.FieldType));
-							}
-							catch
-							{
-								MessageBox.Show("Loading config error: field " + field.Name + "'s value is not valid. Setting it to the default value.");
-							}
+							field.SetValue(result, parsedValue);
 						}
 					}
 				}
 				catch
 				{
-					MessageBox.Show("config.goos corrupt! Creating a new one!");
-					File.Delete(configGivenPath);
-					GooseConfig.ConfigSettings.WriteConfigToFile(configGivenPath, configSettings);
-					return configSettings;
+					// Preserve a corrupt file and use safe defaults for this run.
+					return new ConfigSettings();
 				}
-				return configSettings;
+
+				result.Sanitize();
+				return result;
 			}
 
-			// Token: 0x0600007A RID: 122 RVA: 0x0000521C File Offset: 0x0000341C
-			public static void WriteConfigToFile(string path, GooseConfig.ConfigSettings f)
+			private static Dictionary<string, string> ReadValues(string path)
 			{
-				using (StreamWriter streamWriter = File.CreateText(path))
+				Dictionary<string, string> values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+				foreach (string rawLine in File.ReadAllLines(path))
 				{
-					streamWriter.Write(GooseConfig.ConfigSettings.GenerateTextFromSettings(f));
+					string line = rawLine.Trim();
+					if (line.Length == 0 || line.StartsWith("#") || line.StartsWith(";")) continue;
+
+					int separator = line.IndexOf('=');
+					if (separator <= 0) continue;
+					values[line.Substring(0, separator).Trim()] = line.Substring(separator + 1).Trim();
 				}
+				return values;
 			}
 
-			// Token: 0x0600007B RID: 123 RVA: 0x00005258 File Offset: 0x00003458
-			public static string GenerateTextFromSettings(GooseConfig.ConfigSettings f)
+			private static bool TryConvert(string value, Type targetType, out object converted)
 			{
-				StringBuilder stringBuilder = new StringBuilder();
-				foreach (FieldInfo fieldInfo in typeof(GooseConfig.ConfigSettings).GetFields())
+				converted = null;
+				if (targetType == typeof(bool))
 				{
-					stringBuilder.Append(string.Format("{0}={1}\n", fieldInfo.Name, fieldInfo.GetValue(f).ToString()));
+					bool parsed;
+					if (!bool.TryParse(value, out parsed)) return false;
+					converted = parsed;
+					return true;
 				}
-				return stringBuilder.ToString();
+				if (targetType == typeof(int))
+				{
+					int parsed;
+					if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)) return false;
+					converted = parsed;
+					return true;
+				}
+				if (targetType == typeof(float))
+				{
+					float parsed;
+					if (!float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed)) return false;
+					converted = parsed;
+					return true;
+				}
+				return false;
 			}
 
-			// Token: 0x04000086 RID: 134
-			public int Version;
+			private void Sanitize()
+			{
+				FirstWanderTimeSeconds = Clamp(FirstWanderTimeSeconds, 0f, 3600f);
+				MinWanderingTimeSeconds = Clamp(MinWanderingTimeSeconds, 1f, 3600f);
+				MaxWanderingTimeSeconds = Clamp(MaxWanderingTimeSeconds, MinWanderingTimeSeconds, 3600f);
+				WindowDropGridColumns = Clamp(WindowDropGridColumns, 1, 10);
+				WindowDropGridRows = Clamp(WindowDropGridRows, 1, 10);
+				WindowDropEdgeMargin = Clamp(WindowDropEdgeMargin, 0, 500);
+			}
 
-			// Token: 0x04000087 RID: 135
-			public bool CanAttackAtRandom;
+			private static float Clamp(float value, float minimum, float maximum)
+			{
+				return Math.Max(minimum, Math.Min(maximum, value));
+			}
 
-			// Token: 0x04000088 RID: 136
-			public float MinWanderingTimeSeconds = 20f;
+			private static int Clamp(int value, int minimum, int maximum)
+			{
+				return Math.Max(minimum, Math.Min(maximum, value));
+			}
 
-			// Token: 0x04000089 RID: 137
-			public float MaxWanderingTimeSeconds = 40f;
+			public static void WriteConfigToFile(string path, ConfigSettings settingsToWrite)
+			{
+				using (StreamWriter writer = File.CreateText(path))
+				{
+					writer.Write(GenerateTextFromSettings(settingsToWrite));
+				}
+			}
 
-			// Token: 0x0400008A RID: 138
-			public float FirstWanderTimeSeconds = 20f;
+			public static string GenerateTextFromSettings(ConfigSettings settingsToWrite)
+			{
+				StringBuilder result = new StringBuilder();
+				foreach (FieldInfo field in typeof(ConfigSettings).GetFields())
+				{
+					IFormattable formattable = field.GetValue(settingsToWrite) as IFormattable;
+					string value = formattable == null ? field.GetValue(settingsToWrite).ToString() : formattable.ToString(null, CultureInfo.InvariantCulture);
+					result.AppendFormat(CultureInfo.InvariantCulture, "{0}={1}\n", field.Name, value);
+				}
+				return result.ToString();
+			}
 		}
 	}
 }

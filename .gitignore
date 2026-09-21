@@ -1,0 +1,13 @@
+.vs/
+.idea/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.pdb
+*.tmp
+*.log
+/packages/
+/.packages/
+/dist/
+/DesktopGoose-Prank.zip
