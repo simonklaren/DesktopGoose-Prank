@@ -107,7 +107,7 @@ For a one-off run, open `dist/DesktopGoose-Prank/GooseDesktop.exe`. Hold Escape 
 For the optional watchdog installation, run `dist/DesktopGoose-Prank/tools/setup.bat`. It requests administrator rights, copies the distribution to `%USERPROFILE%\GoosePrank\DesktopGoose-Prank`, creates a plainly named `GooseWatchdog` scheduled task at logon with a five-minute delay, and offers normal or debug mode. Existing installed files are backed up into `%USERPROFILE%\GoosePrank\DesktopGoose-Prank.backup` before replacement.
 
 - Disable restarts but leave files installed: `tools/disable-watchdog.bat`.
-- Fully remove the scheduled task and `%USERPROFILE%\GoosePrank`: `tools/cleanup.bat`.
+- Fully remove the scheduled task and Prank Edition files: `tools/cleanup.bat`. Unrelated or legacy files already present under `%USERPROFILE%\GoosePrank` are left intact.
 - Debug mode is controlled by `%USERPROFILE%\GoosePrank\debug.enabled`; setup creates/removes it and the watchdog reads it on startup.
 
 The repository also preserves untouched copies of the original incoming scripts in `docs/original-prank-tools/` for auditability.

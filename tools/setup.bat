@@ -19,11 +19,17 @@ echo ==========================================
 echo       Desktop Goose - Prank Edition
 echo ==========================================
 echo.
-echo Choose a mode:
-echo   [1] Normal - silent background watchdog
-echo   [2] Debug  - messages and a log file
-choice /c 12 /n /m "Choice: "
-if errorlevel 2 (set "DEBUG_MODE=1") else (set "DEBUG_MODE=0")
+if /I "%~1"=="/normal" (
+    set "DEBUG_MODE=0"
+) else if /I "%~1"=="/debug" (
+    set "DEBUG_MODE=1"
+) else (
+    echo Choose a mode:
+    echo   [1] Normal - silent background watchdog
+    echo   [2] Debug  - messages and a log file
+    choice /c 12 /n /m "Choice: "
+    if errorlevel 2 (set "DEBUG_MODE=1") else (set "DEBUG_MODE=0")
+)
 
 if not exist "%SOURCE_GOOSE%\GooseDesktop.exe" (
     echo [ERROR] GooseDesktop.exe was not found in "%SOURCE_GOOSE%".
