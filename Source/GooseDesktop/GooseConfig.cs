@@ -31,6 +31,10 @@ namespace GooseDesktop
 			public int WindowDropGridRows = 3;
 			public int WindowDropEdgeMargin = 50;
 			public bool AvoidRecentDropZones = true;
+			public bool EnableTeleporters = true;
+			public bool EnableVehicles = true;
+			public bool EnableEggs = true;
+			public int MaxGeese = 24;
 
 			public static ConfigSettings ReadFileIntoConfig(string configGivenPath)
 			{
@@ -124,6 +128,7 @@ namespace GooseDesktop
 				WindowDropGridColumns = Clamp(WindowDropGridColumns, 1, 10);
 				WindowDropGridRows = Clamp(WindowDropGridRows, 1, 10);
 				WindowDropEdgeMargin = Clamp(WindowDropEdgeMargin, 0, 500);
+				MaxGeese = Clamp(MaxGeese, 1, 64);
 			}
 
 			private static float Clamp(float value, float minimum, float maximum)

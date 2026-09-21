@@ -1,6 +1,6 @@
 # Desktop Goose – Prank Edition
 
-A private, customized fork of **Desktop Goose by Sam Chiet (samperson)**. It keeps the original goose movement and beak-drag animation, but distributes delivered meme, notepad, and donation windows around the desktop instead of dropping them near the entry edge every time. The defaults are deliberately more active while remaining configurable and non-destructive.
+A private, customized fork of **Desktop Goose by Sam Chiet (samperson)**. It keeps the original goose movement and beak-drag animation, but distributes delivered meme and notepad windows around the desktop instead of dropping them near the entry edge every time. The defaults are deliberately more active while remaining configurable and non-destructive.
 
 Use this only on computers where you have permission. The included watchdog is visible in Windows Task Scheduler as `GooseWatchdog`, can be disabled independently, and is completely removed by `cleanup.bat`.
 
@@ -22,6 +22,17 @@ The recovered repository is an early, decompiled .NET Framework source tree. It 
 - The goose physically walks to the destination while the window continues to follow its beak.
 - Existing edge-based behavior remains available with `RandomizeWindowDropPosition=False`.
 - More aggressive defaults: random mouse attacks enabled, first wander 4 seconds, later wander periods 8–15 seconds.
+- Meme runs: the goose charges off-screen to collect memes, then runs them to their randomized drop zone.
+- Portal trips: the goose drags in a paired teleporter, steps back, dives through it, and reappears elsewhere in a flash.
+- Surprise transport: the goose first runs off-screen, then returns by taxi, airplane, or bicycle.
+- Vehicle rides continue until the goose drives or flies off-screen again; only the bicycle keeps the walking/footstep animation active.
+- Portal pairs remain on the desktop as one network: every portal can be an entrance, with a random different portal as its exit.
+- New portal pairs spawn directly in view instead of being dragged in.
+- Vehicles appear more often and sometimes tow a new meme on a rope; the rope snaps en route and leaves the meme behind.
+- Bulldozer rides target an existing visible meme and push it to a new part of the desktop.
+- Meme and notepad deliveries use the same faster running speed.
+- Meme and notepad deliveries use direct, momentum-free steering with a locked backward-facing angle, preventing the beak offset from moving the target into an orbit. A 20-second fail-safe completes the drop at its original unique destination.
+- The donation popup has been removed.
 - Stock v0.31-style `config.ini` key names with tolerant parsing, defaults for missing keys, ignored unknown keys, and clamped invalid ranges.
 - Notepad messages are loaded from `Assets/Text/NotepadMessages/*.txt` rather than only the embedded phrases.
 - The existing custom memes, text, sounds, and mod assets were copied byte-for-byte into `Runtime/Assets`.
@@ -63,6 +74,8 @@ Edit `config.ini` next to `GooseDesktop.exe`:
 | `WindowDropGridRows` | `3` | Grid rows, clamped to 1–10. |
 | `WindowDropEdgeMargin` | `50` | Requested pixel margin, clamped to 0–500 and reduced for small screens. |
 | `AvoidRecentDropZones` | `True` | Avoids the two most recently used zones when possible. |
+| `EnableTeleporters` | `True` | Enables paired portal trips and their flash animation. |
+| `EnableVehicles` | `True` | Enables taxi, airplane, and bicycle trips. |
 
 Missing custom keys use these defaults. Unknown keys from newer stock configs (for example `EnableMods`, colors, or sound toggles) are ignored because this recovered source does not implement those later subsystems. Malformed known values retain defaults; timing and grid values are sanitized.
 
@@ -91,6 +104,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
 The script restores reference assemblies, performs a Release rebuild, runs the deterministic planner/config checks, creates `dist/DesktopGoose-Prank`, and writes `DesktopGoose-Prank.zip`.
+
+The root `setup.bat` offers two workflows: compile the latest source and install it, or install the existing `dist/DesktopGoose-Prank` build without compiling. No ZIP movement, extraction, or renaming is needed.
 
 Manual commands:
 

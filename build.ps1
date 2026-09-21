@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$SkipTests,
+    [switch]$SkipZip
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -13,14 +16,19 @@ $distRoot = Join-Path $distParent 'DesktopGoose-Prank'
 $zipPath = Join-Path $repoRoot 'DesktopGoose-Prank.zip'
 $env:NUGET_PACKAGES = Join-Path $repoRoot '.packages'
 
+# A running development copy can lock GIF meme files inside dist.
+Get-Process -Name 'GooseDesktop' -ErrorAction SilentlyContinue | Stop-Process -Force
+
 dotnet restore $solution --ignore-failed-sources
 if ($LASTEXITCODE -ne 0) { throw 'Solution restore failed.' }
 
 dotnet msbuild $solution /t:Rebuild /p:Configuration=Release '/p:Platform=Any CPU' /p:RestorePackages=false
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 
-dotnet run --project $testProject -c Release
-if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+if (-not $SkipTests) {
+    dotnet run --project $testProject -c Release
+    if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+}
 
 $expectedDistPrefix = [IO.Path]::GetFullPath($distParent) + [IO.Path]::DirectorySeparatorChar
 $resolvedDistRoot = [IO.Path]::GetFullPath($distRoot)
@@ -42,11 +50,15 @@ $resolvedZip = [IO.Path]::GetFullPath($zipPath)
 if (-not $resolvedZip.StartsWith([IO.Path]::GetFullPath($repoRoot), [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to replace unexpected ZIP path: $resolvedZip"
 }
-if (Test-Path -LiteralPath $zipPath) {
-    Remove-Item -LiteralPath $zipPath -Force
+if (-not $SkipZip) {
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
+    }
+    Compress-Archive -LiteralPath $distRoot -DestinationPath $zipPath -CompressionLevel Optimal
 }
-Compress-Archive -LiteralPath $distRoot -DestinationPath $zipPath -CompressionLevel Optimal
 
 Write-Host "Release executable: $releaseExe"
 Write-Host "Distribution:      $distRoot"
-Write-Host "ZIP:               $zipPath"
+if (-not $SkipZip) {
+    Write-Host "ZIP:               $zipPath"
+}

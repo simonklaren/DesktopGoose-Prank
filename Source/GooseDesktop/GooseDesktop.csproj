@@ -74,6 +74,8 @@
     <Compile Include="SamEngine\Vector2.cs" />
     <Compile Include="Sound.cs" />
     <Compile Include="TheGoose.cs" />
+	<Compile Include="TheGoose.Travel.cs" />
+	<Compile Include="TheGoose.Colony.cs" />
     <Compile Include="WindowDropPlanner.cs" />
   </ItemGroup>
   <ItemGroup>

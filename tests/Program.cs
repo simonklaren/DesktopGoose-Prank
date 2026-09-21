@@ -65,6 +65,8 @@ namespace GooseDesktop
 				Assert(config.MaxWanderingTimeSeconds == 15f, "malformed value retains its default");
 				Assert(config.WindowDropGridColumns == 10, "oversized grid is clamped");
 				Assert(config.WindowDropGridRows == 3, "missing custom keys retain defaults");
+				Assert(config.EnableTeleporters, "missing teleporter key retains its enabled default");
+				Assert(config.EnableVehicles, "missing vehicle key retains its enabled default");
 			}
 			finally
 			{

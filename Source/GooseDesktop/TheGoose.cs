@@ -1,18 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Threading;
 using System.Windows.Forms;
 using SamEngine;
 
 namespace GooseDesktop
 {
 	// Token: 0x0200000C RID: 12
-	internal static class TheGoose
+	internal static partial class TheGoose
 	{
 		// Token: 0x06000048 RID: 72 RVA: 0x000033EC File Offset: 0x000015EC
 		public static void Init()
@@ -42,6 +40,7 @@ namespace GooseDesktop
 			Pen drawingPen = TheGoose.DrawingPen;
 			TheGoose.DrawingPen.StartCap = LineCap.Round;
 			drawingPen.EndCap = LineCap.Round;
+			TheGoose.InitializeColony();
 			TheGoose.SetTask(TheGoose.GooseTask.Wander);
 		}
 
@@ -56,12 +55,12 @@ namespace GooseDesktop
 				TheGoose.stepTime = 0.2f;
 				return;
 			case TheGoose.SpeedTiers.Run:
-				TheGoose.currentSpeed = 200f;
+				TheGoose.currentSpeed = 260f;
 				TheGoose.currentAcceleration = 1300f;
 				TheGoose.stepTime = 0.2f;
 				return;
 			case TheGoose.SpeedTiers.Charge:
-				TheGoose.currentSpeed = 400f;
+				TheGoose.currentSpeed = 480f;
 				TheGoose.currentAcceleration = 2300f;
 				TheGoose.stepTime = 0.1f;
 				return;
@@ -81,6 +80,7 @@ namespace GooseDesktop
 			TheGoose.lastFrameMouseButtonPressed = ((Control.MouseButtons & MouseButtons.Left) == MouseButtons.Left);
 			TheGoose.targetDirection = Vector2.Normalize(TheGoose.targetPos - TheGoose.position);
 			TheGoose.overrideExtendNeck = false;
+			TheGoose.useDirectDragMovement = false;
 			TheGoose.RunAI();
 			Vector2 vector = Vector2.Lerp(Vector2.GetFromAngleDegrees(TheGoose.direction), TheGoose.targetDirection, 0.25f);
 			TheGoose.direction = (float)Math.Atan2((double)vector.y, (double)vector.x) * 57.2957764f;
@@ -88,12 +88,19 @@ namespace GooseDesktop
 			{
 				TheGoose.velocity = Vector2.Normalize(TheGoose.velocity) * TheGoose.currentSpeed;
 			}
-			TheGoose.velocity += Vector2.Normalize(TheGoose.targetPos - TheGoose.position) * TheGoose.currentAcceleration * 0.008333334f;
+			if (!TheGoose.useDirectDragMovement)
+			{
+				TheGoose.velocity += Vector2.Normalize(TheGoose.targetPos - TheGoose.position) * TheGoose.currentAcceleration * 0.008333334f;
+			}
 			TheGoose.position += TheGoose.velocity * 0.008333334f;
-			TheGoose.SolveFeet();
+			if (!TheGoose.IsRidingVehicleWithoutWalkingAnimation())
+			{
+				TheGoose.SolveFeet();
+			}
 			Vector2.Magnitude(TheGoose.velocity);
 			int num = (TheGoose.overrideExtendNeck | TheGoose.currentSpeed >= 200f) ? 1 : 0;
 			TheGoose.gooseRig.neckLerpPercent = SamMath.Lerp(TheGoose.gooseRig.neckLerpPercent, (float)num, 0.075f);
+			TheGoose.TickColony();
 		}
 
 		// Token: 0x0600004B RID: 75 RVA: 0x00003780 File Offset: 0x00001980
@@ -203,22 +210,27 @@ namespace GooseDesktop
 			switch (TheGoose.taskCollectWindowInfo.stage)
 			{
 			case TheGoose.Task_CollectWindow.Stage.WalkingOffscreen:
-				if (Vector2.Distance(TheGoose.position, TheGoose.targetPos) < 5f)
+				if (TheGoose.ApproachCurrentTarget(480f, 18f))
 				{
 					TheGoose.taskCollectWindowInfo.secsToWait = TheGoose.Task_CollectWindow.GetWaitTime();
 					TheGoose.taskCollectWindowInfo.waitStartTime = Time.time;
+					TheGoose.velocity = Vector2.zero;
+					TheGoose.targetPos = TheGoose.position;
 					TheGoose.taskCollectWindowInfo.stage = TheGoose.Task_CollectWindow.Stage.WaitingToBringWindowBack;
 					return;
 				}
 				break;
 			case TheGoose.Task_CollectWindow.Stage.WaitingToBringWindowBack:
+				TheGoose.velocity = Vector2.zero;
+				TheGoose.targetPos = TheGoose.position;
 				if (Time.time - TheGoose.taskCollectWindowInfo.waitStartTime > TheGoose.taskCollectWindowInfo.secsToWait)
 				{
 					TheGoose.taskCollectWindowInfo.mainForm.FormClosing += TheGoose.CollectMemeTask_CancelEarly;
-					new Thread(delegate()
-					{
-						TheGoose.taskCollectWindowInfo.mainForm.ShowDialog();
-					}).Start();
+					TheGoose.taskCollectWindowInfo.mainForm.Location = TheGoose.ToIntPoint(
+						TheGoose.gooseRig.head2EndPoint - TheGoose.taskCollectWindowInfo.windowOffsetToBeak);
+					TheGoose.taskCollectWindowInfo.mainForm.Show();
+					TheGoose.taskCollectWindowInfo.mainForm.TopMost = true;
+					TheGoose.taskCollectWindowInfo.windowShownTime = Time.time;
 					if (GooseConfig.settings.RandomizeWindowDropPosition)
 					{
 						Point dropPosition = TheGoose.windowDropPlanner.ChooseWindowDropPosition(
@@ -235,11 +247,42 @@ namespace GooseDesktop
 					{
 						TheGoose.SetLegacyWindowDropTarget();
 					}
-					TheGoose.taskCollectWindowInfo.stage = TheGoose.Task_CollectWindow.Stage.DraggingWindowBack;
+					TheGoose.velocity = Vector2.zero;
+					TheGoose.targetPos = TheGoose.position;
+					TheGoose.taskCollectWindowInfo.stage = TheGoose.Task_CollectWindow.Stage.WaitingForWindowToOpen;
 					return;
 				}
 				break;
+			case TheGoose.Task_CollectWindow.Stage.WaitingForWindowToOpen:
+				TheGoose.velocity = Vector2.zero;
+				TheGoose.targetPos = TheGoose.position;
+				if (Time.time - TheGoose.taskCollectWindowInfo.windowShownTime >= 0.35f)
+				{
+					TheGoose.taskCollectWindowInfo.stage = TheGoose.Task_CollectWindow.Stage.DraggingWindowBack;
+					TheGoose.SetSpeed(TheGoose.taskCollectWindowInfo.isFastDelivery ? TheGoose.SpeedTiers.Charge : TheGoose.SpeedTiers.Walk);
+					if (GooseConfig.settings.RandomizeWindowDropPosition)
+					{
+						TheGoose.UpdateTargetForWindowDrop();
+					}
+					else
+					{
+						TheGoose.SetLegacyWindowDropTarget();
+					}
+					Vector2 deliveryDirection = Vector2.Normalize(TheGoose.targetPos - TheGoose.position);
+					TheGoose.taskCollectWindowInfo.dragFacingDirection = (float)Math.Atan2(-deliveryDirection.y, -deliveryDirection.x) * 57.2957764f;
+					TheGoose.direction = TheGoose.taskCollectWindowInfo.dragFacingDirection;
+					TheGoose.UpdateRig();
+					if (GooseConfig.settings.RandomizeWindowDropPosition)
+					{
+						TheGoose.UpdateTargetForWindowDrop();
+					}
+					TheGoose.taskCollectWindowInfo.dragStartTime = Time.time;
+				}
+				break;
 			case TheGoose.Task_CollectWindow.Stage.DraggingWindowBack:
+				TheGoose.direction = TheGoose.taskCollectWindowInfo.dragFacingDirection;
+				TheGoose.targetDirection = Vector2.GetFromAngleDegrees(TheGoose.taskCollectWindowInfo.dragFacingDirection);
+				TheGoose.UpdateRig();
 				Vector2 currentWindowPosition = TheGoose.gooseRig.head2EndPoint - TheGoose.taskCollectWindowInfo.windowOffsetToBeak;
 				bool reachedDropPosition = GooseConfig.settings.RandomizeWindowDropPosition
 					? Vector2.Distance(currentWindowPosition, TheGoose.taskCollectWindowInfo.dropWindowPosition) < 5f
@@ -250,12 +293,30 @@ namespace GooseDesktop
 					TheGoose.SetTask(TheGoose.GooseTask.Wander);
 					return;
 				}
+				if (GooseConfig.settings.RandomizeWindowDropPosition
+					&& Time.time - TheGoose.taskCollectWindowInfo.dragStartTime >= 20f)
+				{
+					TheGoose.taskCollectWindowInfo.mainForm.SetWindowPositionThreadsafe(
+						TheGoose.ToIntPoint(TheGoose.taskCollectWindowInfo.dropWindowPosition));
+					TheGoose.velocity = Vector2.zero;
+					TheGoose.targetPos = TheGoose.position;
+					TheGoose.SetTask(TheGoose.GooseTask.Wander);
+					return;
+				}
 				if (GooseConfig.settings.RandomizeWindowDropPosition)
 				{
 					TheGoose.UpdateTargetForWindowDrop();
 				}
+				float distanceToDrop = GooseConfig.settings.RandomizeWindowDropPosition
+					? Vector2.Distance(currentWindowPosition, TheGoose.taskCollectWindowInfo.dropWindowPosition)
+					: Vector2.Distance(TheGoose.position, TheGoose.targetPos);
+				float approachSpeed = SamMath.Clamp(distanceToDrop * 2f, 65f, 480f);
+				Vector2 approachDirection = Vector2.Normalize(TheGoose.targetPos - TheGoose.position);
+				TheGoose.velocity = approachDirection * approachSpeed;
+				TheGoose.currentSpeed = approachSpeed;
+				TheGoose.useDirectDragMovement = true;
 				TheGoose.overrideExtendNeck = true;
-				TheGoose.targetDirection = TheGoose.position - TheGoose.targetPos;
+				TheGoose.targetDirection = Vector2.GetFromAngleDegrees(TheGoose.taskCollectWindowInfo.dragFacingDirection);
 				TheGoose.taskCollectWindowInfo.mainForm.SetWindowPositionThreadsafe(TheGoose.ToIntPoint(TheGoose.gooseRig.head2EndPoint - TheGoose.taskCollectWindowInfo.windowOffsetToBeak));
 				break;
 			default:
@@ -293,7 +354,11 @@ namespace GooseDesktop
 		// Token: 0x0600004F RID: 79 RVA: 0x0000252A File Offset: 0x0000072A
 		private static void CollectMemeTask_CancelEarly(object sender, FormClosingEventArgs e)
 		{
-			TheGoose.SetTask(TheGoose.GooseTask.NabMouse);
+			if (TheGoose.currentTask == TheGoose.GooseTask.CollectWindow_DONOTSET
+				&& object.ReferenceEquals(sender, TheGoose.taskCollectWindowInfo.mainForm))
+			{
+				TheGoose.SetTask(TheGoose.GooseTask.NabMouse);
+			}
 		}
 
 		// Token: 0x06000050 RID: 80 RVA: 0x00003EFC File Offset: 0x000020FC
@@ -307,7 +372,7 @@ namespace GooseDesktop
 				TheGoose.taskTrackMudInfo.stage = TheGoose.Task_TrackMud.Stage.RunningOffscreen;
 				return;
 			case TheGoose.Task_TrackMud.Stage.RunningOffscreen:
-				if (Vector2.Distance(TheGoose.position, TheGoose.targetPos) < 5f)
+				if (TheGoose.ApproachCurrentTarget(260f, 18f))
 				{
 					TheGoose.targetPos = new Vector2(SamMath.RandomRange(0f, (float)Program.mainForm.Width), SamMath.RandomRange(0f, (float)Program.mainForm.Height));
 					TheGoose.taskTrackMudInfo.nextDirChangeTime = Time.time + TheGoose.Task_TrackMud.GetDirChangeInterval();
@@ -345,19 +410,12 @@ namespace GooseDesktop
 				TheGoose.SetTask(TheGoose.GooseTask.TrackMud);
 				return;
 			}
-			if (Time.time > 480f && !TheGoose.hasAskedForDonation)
-			{
-				TheGoose.hasAskedForDonation = true;
-				TheGoose.SetTask(TheGoose.GooseTask.CollectWindow_Donate);
-				return;
-			}
 			TheGoose.GooseTask gooseTask = TheGoose.gooseTaskWeightedList[TheGoose.taskPickerDeck.Next()];
-			while (!GooseConfig.settings.AttackRandomly || !GooseConfig.settings.Task_CanAttackMouse)
+			while (((!GooseConfig.settings.AttackRandomly || !GooseConfig.settings.Task_CanAttackMouse) && gooseTask == TheGoose.GooseTask.NabMouse)
+				|| (!GooseConfig.settings.EnableTeleporters && gooseTask == TheGoose.GooseTask.Teleport)
+				|| (!GooseConfig.settings.EnableVehicles && gooseTask == TheGoose.GooseTask.RideVehicle)
+				|| (!GooseConfig.settings.EnableEggs && gooseTask == TheGoose.GooseTask.LayEgg))
 			{
-				if (gooseTask != TheGoose.GooseTask.NabMouse)
-				{
-					break;
-				}
 				gooseTask = TheGoose.gooseTaskWeightedList[TheGoose.taskPickerDeck.Next()];
 			}
 			TheGoose.SetTask(gooseTask);
@@ -392,21 +450,19 @@ namespace GooseDesktop
 				return;
 			case TheGoose.GooseTask.CollectWindow_Meme:
 				TheGoose.taskCollectWindowInfo = default(TheGoose.Task_CollectWindow);
+				TheGoose.taskCollectWindowInfo.isFastDelivery = true;
 				TheGoose.taskCollectWindowInfo.mainForm = new TheGoose.SimpleImageForm();
 				TheGoose.SetTask(TheGoose.GooseTask.CollectWindow_DONOTSET, false);
 				return;
 			case TheGoose.GooseTask.CollectWindow_Notepad:
 				TheGoose.taskCollectWindowInfo = default(TheGoose.Task_CollectWindow);
+				TheGoose.taskCollectWindowInfo.isFastDelivery = true;
 				TheGoose.taskCollectWindowInfo.mainForm = new TheGoose.SimpleTextForm();
-				TheGoose.SetTask(TheGoose.GooseTask.CollectWindow_DONOTSET, false);
-				return;
-			case TheGoose.GooseTask.CollectWindow_Donate:
-				TheGoose.taskCollectWindowInfo = default(TheGoose.Task_CollectWindow);
-				TheGoose.taskCollectWindowInfo.mainForm = new TheGoose.SimpleDonateForm();
 				TheGoose.SetTask(TheGoose.GooseTask.CollectWindow_DONOTSET, false);
 				return;
 			case TheGoose.GooseTask.CollectWindow_DONOTSET:
 				TheGoose.taskCollectWindowInfo.screenDirection = TheGoose.SetTargetOffscreen(false);
+				TheGoose.SetSpeed(TheGoose.taskCollectWindowInfo.isFastDelivery ? TheGoose.SpeedTiers.Charge : TheGoose.SpeedTiers.Walk);
 				switch (TheGoose.taskCollectWindowInfo.screenDirection)
 				{
 				case TheGoose.Task_CollectWindow.ScreenDirection.Left:
@@ -421,9 +477,17 @@ namespace GooseDesktop
 				default:
 					return;
 				}
-				break;
 			case TheGoose.GooseTask.TrackMud:
 				TheGoose.taskTrackMudInfo = default(TheGoose.Task_TrackMud);
+				return;
+			case TheGoose.GooseTask.Teleport:
+				TheGoose.StartTeleportTask();
+				return;
+			case TheGoose.GooseTask.RideVehicle:
+				TheGoose.StartVehicleTask();
+				return;
+			case TheGoose.GooseTask.LayEgg:
+				TheGoose.StartLayEggTask();
 				return;
 			default:
 				return;
@@ -443,13 +507,20 @@ namespace GooseDesktop
 				return;
 			case TheGoose.GooseTask.CollectWindow_Meme:
 			case TheGoose.GooseTask.CollectWindow_Notepad:
-			case TheGoose.GooseTask.CollectWindow_Donate:
-				break;
 			case TheGoose.GooseTask.CollectWindow_DONOTSET:
 				TheGoose.RunCollectWindow();
 				return;
 			case TheGoose.GooseTask.TrackMud:
 				TheGoose.RunTrackMud();
+				break;
+			case TheGoose.GooseTask.Teleport:
+				TheGoose.RunTeleportTask();
+				break;
+			case TheGoose.GooseTask.RideVehicle:
+				TheGoose.RunVehicleTask();
+				break;
+			case TheGoose.GooseTask.LayEgg:
+				TheGoose.RunLayEggTask();
 				break;
 			default:
 				return;
@@ -593,6 +664,8 @@ namespace GooseDesktop
 					TheGoose.FillCircleFromCenter(g, Brushes.SaddleBrown, TheGoose.footMarks[i].position, (int)num2);
 				}
 			}
+			TheGoose.RenderTravelEffectsBehind(g);
+			TheGoose.RenderColony(g);
 			TheGoose.UpdateRig();
 			float num3 = TheGoose.direction;
 			int num4 = (int)TheGoose.position.x;
@@ -603,8 +676,11 @@ namespace GooseDesktop
 			Vector2 fromAngleDegrees2 = Vector2.GetFromAngleDegrees(num3 + 90f);
 			Vector2 a = new Vector2(0f, -1f);
 			TheGoose.DrawingPen.Brush = Brushes.White;
-			TheGoose.FillCircleFromCenter(g, Brushes.Orange, TheGoose.lFootPos, 4);
-			TheGoose.FillCircleFromCenter(g, Brushes.Orange, TheGoose.rFootPos, 4);
+			if (!TheGoose.IsRidingVehicleWithoutWalkingAnimation())
+			{
+				TheGoose.FillCircleFromCenter(g, Brushes.Orange, TheGoose.lFootPos, 4);
+				TheGoose.FillCircleFromCenter(g, Brushes.Orange, TheGoose.rFootPos, 4);
+			}
 			TheGoose.FillEllipseFromCenter(g, TheGoose.shadowBrush, (int)vector.x, (int)vector.y, 20, 15);
 			TheGoose.DrawingPen.Color = Color.LightGray;
 			TheGoose.DrawingPen.Width = 24f;
@@ -635,6 +711,7 @@ namespace GooseDesktop
 			Vector2 pos2 = TheGoose.gooseRig.neckHeadPoint + a * 3f + fromAngleDegrees2 * b * 5f + fromAngleDegrees * 5f;
 			TheGoose.FillCircleFromCenter(g, Brushes.Black, pos, 2);
 			TheGoose.FillCircleFromCenter(g, Brushes.Black, pos2, 2);
+			TheGoose.RenderTravelEffectsFront(g);
 		}
 
 		// Token: 0x0600005B RID: 91 RVA: 0x0000253B File Offset: 0x0000073B
@@ -682,6 +759,8 @@ namespace GooseDesktop
 		// Token: 0x04000020 RID: 32
 		private static bool overrideExtendNeck;
 
+		private static bool useDirectDragMovement;
+
 		// Token: 0x04000021 RID: 33
 		private const TheGoose.GooseTask FirstUX_FirstTask = TheGoose.GooseTask.TrackMud;
 
@@ -709,10 +788,10 @@ namespace GooseDesktop
 		private const float WalkSpeed = 80f;
 
 		// Token: 0x04000029 RID: 41
-		private const float RunSpeed = 200f;
+		private const float RunSpeed = 260f;
 
 		// Token: 0x0400002A RID: 42
-		private const float ChargeSpeed = 400f;
+		private const float ChargeSpeed = 480f;
 
 		// Token: 0x0400002B RID: 43
 		private const float turnSpeed = 120f;
@@ -775,25 +854,40 @@ namespace GooseDesktop
 		private static Size tmpSize = default(Size);
 
 		// Token: 0x0400003F RID: 63
-		private static bool hasAskedForDonation = false;
-
 		// Token: 0x04000040 RID: 64
 		private static TheGoose.Task_CollectWindow taskCollectWindowInfo;
 
 		// Token: 0x04000041 RID: 65
 		private static TheGoose.Task_TrackMud taskTrackMudInfo;
 
+		private static TheGoose.Task_Teleport taskTeleportInfo;
+
+		private static TheGoose.Task_Vehicle taskVehicleInfo;
+
+		private static TheGoose.Task_LayEgg taskLayEggInfo;
+
 		// Token: 0x04000042 RID: 66
 		private static TheGoose.GooseTask[] gooseTaskWeightedList = new TheGoose.GooseTask[]
 		{
 			TheGoose.GooseTask.TrackMud,
-			TheGoose.GooseTask.TrackMud,
+			TheGoose.GooseTask.CollectWindow_Meme,
+			TheGoose.GooseTask.CollectWindow_Meme,
+			TheGoose.GooseTask.CollectWindow_Meme,
+			TheGoose.GooseTask.CollectWindow_Meme,
 			TheGoose.GooseTask.CollectWindow_Meme,
 			TheGoose.GooseTask.CollectWindow_Meme,
 			TheGoose.GooseTask.CollectWindow_Notepad,
+			TheGoose.GooseTask.CollectWindow_Notepad,
 			TheGoose.GooseTask.NabMouse,
 			TheGoose.GooseTask.NabMouse,
-			TheGoose.GooseTask.NabMouse
+			TheGoose.GooseTask.Teleport,
+			TheGoose.GooseTask.Teleport,
+			TheGoose.GooseTask.RideVehicle,
+			TheGoose.GooseTask.RideVehicle,
+			TheGoose.GooseTask.RideVehicle,
+			TheGoose.GooseTask.LayEgg,
+			TheGoose.GooseTask.LayEgg,
+			TheGoose.GooseTask.RideVehicle
 		};
 
 		// Token: 0x04000043 RID: 67
@@ -858,11 +952,13 @@ namespace GooseDesktop
 			// Token: 0x04000095 RID: 149
 			CollectWindow_Notepad,
 			// Token: 0x04000096 RID: 150
-			CollectWindow_Donate,
 			// Token: 0x04000097 RID: 151
 			CollectWindow_DONOTSET,
 			// Token: 0x04000098 RID: 152
 			TrackMud,
+			Teleport,
+			RideVehicle,
+			LayEgg,
 			// Token: 0x04000099 RID: 153
 			Count
 		}
@@ -986,6 +1082,12 @@ namespace GooseDesktop
 			// Token: 0x040000B0 RID: 176
 			public float waitStartTime;
 
+			public float windowShownTime;
+
+			public float dragStartTime;
+
+			public float dragFacingDirection;
+
 			// Token: 0x040000B1 RID: 177
 			public TheGoose.Task_CollectWindow.ScreenDirection screenDirection;
 
@@ -994,6 +1096,9 @@ namespace GooseDesktop
 
 			public Vector2 dropWindowPosition;
 
+			public bool isFastDelivery;
+
+
 			// Token: 0x02000026 RID: 38
 			public enum Stage
 			{
@@ -1001,6 +1106,7 @@ namespace GooseDesktop
 				WalkingOffscreen,
 				// Token: 0x040000ED RID: 237
 				WaitingToBringWindowBack,
+				WaitingForWindowToOpen,
 				// Token: 0x040000EE RID: 238
 				DraggingWindowBack
 			}
@@ -1035,13 +1141,21 @@ namespace GooseDesktop
 			// Token: 0x0600008B RID: 139 RVA: 0x0000539C File Offset: 0x0000359C
 			public void SetWindowPositionThreadsafe(Point p)
 			{
+				if (base.IsDisposed || base.Disposing) return;
 				if (base.InvokeRequired)
 				{
-					base.BeginInvoke(new MethodInvoker(delegate()
+					try
 					{
-						this.Location = p;
-						this.TopMost = true;
-					}));
+						base.BeginInvoke(new MethodInvoker(delegate()
+						{
+							if (this.IsDisposed || this.Disposing) return;
+							this.Location = p;
+							this.TopMost = true;
+						}));
+					}
+					catch (InvalidOperationException)
+					{
+					}
 					return;
 				}
 				base.Location = p;
@@ -1071,6 +1185,11 @@ namespace GooseDesktop
 			// Token: 0x0600008D RID: 141 RVA: 0x00005450 File Offset: 0x00003650
 			public SimpleImageForm()
 			{
+				TheGoose.activeMemeForms.Add(this);
+				base.FormClosed += delegate
+				{
+					TheGoose.activeMemeForms.Remove(this);
+				};
 				List<Image> list = new List<Image>();
 				try
 				{
@@ -1201,97 +1320,6 @@ namespace GooseDesktop
 
 			// Token: 0x040000B9 RID: 185
 			private static Deck textIndices = new Deck(TheGoose.SimpleTextForm.possiblePhrases.Length);
-		}
-
-		// Token: 0x0200001F RID: 31
-		private class SimpleDonateForm : TheGoose.MovableForm
-		{
-			// Token: 0x06000092 RID: 146 RVA: 0x000056F8 File Offset: 0x000038F8
-			public SimpleDonateForm()
-			{
-				new PictureBox();
-				base.ClientSize = new Size((int)(250f * this.scale), (int)(300f * this.scale));
-				try
-				{
-					this.BackgroundImage = Image.FromFile(TheGoose.SimpleDonateForm.donationGraphicSrc);
-				}
-				catch
-				{
-					Label label = new Label();
-					label.Text = "Can't find the donation image... are you messing with the game files?\nCheck out my Twitter at twitter.com/samnchiet I guess?";
-					label.Location = new Point(0, 0);
-					label.Width = base.ClientSize.Width;
-					label.Height = base.ClientSize.Height;
-					label.BackColor = Color.White;
-					label.TextAlign = ContentAlignment.MiddleCenter;
-					base.Controls.Add(label);
-				}
-				this.BackgroundImageLayout = ImageLayout.Stretch;
-				base.Controls.Add(this.SetupButton(111, 407, 390, 475, new EventHandler(this.OpenPatreonLink), true));
-				base.Controls.Add(this.SetupButton(174, 500, 325, 545, new EventHandler(this.OpenPaypalLink), true));
-				base.Controls.Add(this.SetupButton(381, 302, 433, 360, new EventHandler(this.OpenDiscordLink), true));
-				base.Controls.Add(this.SetupButton(403, 247, 472, 312, new EventHandler(this.OpenTwitterLink), true));
-			}
-
-			// Token: 0x06000093 RID: 147 RVA: 0x00005898 File Offset: 0x00003A98
-			private Button SetupButton(int point1X, int point1Y, int point2X, int point2Y, EventHandler handler, bool showHoverClick = true)
-			{
-				Button button = new Button();
-				button.Location = new Point((int)((float)point1X * this.scale) / 2, (int)((float)point1Y * this.scale) / 2);
-				button.Size = new Size((int)((float)(point2X - point1X) * this.scale) / 2, (int)((float)(point2Y - point1Y) * this.scale) / 2);
-				button.Click += handler;
-				button.Cursor = Cursors.Hand;
-				button.BackColor = Color.Transparent;
-				button.ForeColor = Color.Transparent;
-				button.FlatStyle = FlatStyle.Flat;
-				button.FlatAppearance.MouseOverBackColor = (showHoverClick ? Color.FromArgb(40, Color.White) : Color.Transparent);
-				button.FlatAppearance.MouseDownBackColor = Color.FromArgb(80, Color.White);
-				button.FlatAppearance.BorderSize = 0;
-				button.TabStop = false;
-				return button;
-			}
-
-			// Token: 0x06000094 RID: 148 RVA: 0x0000288E File Offset: 0x00000A8E
-			private void OpenPatreonLink(object sender, EventArgs e)
-			{
-				Process.Start("https://www.patreon.com/bePatron?u=3541875");
-			}
-
-			// Token: 0x06000095 RID: 149 RVA: 0x0000289B File Offset: 0x00000A9B
-			private void OpenPaypalLink(object sender, EventArgs e)
-			{
-				Process.Start("https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=WUKYHY7SZ275Q&currency_code=USD&source=url");
-			}
-
-			// Token: 0x06000096 RID: 150 RVA: 0x000028A8 File Offset: 0x00000AA8
-			private void OpenTwitterLink(object sender, EventArgs e)
-			{
-				Process.Start("https://www.twitter.com/samnchiet");
-			}
-
-			// Token: 0x06000097 RID: 151 RVA: 0x000028B5 File Offset: 0x00000AB5
-			private void OpenDiscordLink(object sender, EventArgs e)
-			{
-				Process.Start("https://discord.gg/PCJS6DH");
-			}
-
-			// Token: 0x040000BA RID: 186
-			private const string patreonLink = "https://www.patreon.com/bePatron?u=3541875";
-
-			// Token: 0x040000BB RID: 187
-			private const string paypalLink = "https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=WUKYHY7SZ275Q&currency_code=USD&source=url";
-
-			// Token: 0x040000BC RID: 188
-			private const string twitterLink = "https://www.twitter.com/samnchiet";
-
-			// Token: 0x040000BD RID: 189
-			private const string discordLink = "https://discord.gg/PCJS6DH";
-
-			// Token: 0x040000BE RID: 190
-			private static string donationGraphicSrc = Program.GetPathToFileInAssembly("Assets/Images/OtherGfx/DonatePage.png");
-
-			// Token: 0x040000BF RID: 191
-			private float scale = 1.25f;
 		}
 
 		// Token: 0x02000020 RID: 32
